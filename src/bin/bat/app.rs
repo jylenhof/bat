@@ -38,6 +38,15 @@ pub fn env_no_color() -> bool {
     env::var_os("NO_COLOR").is_some_and(|x| !x.is_empty())
 }
 
+fn parse_strip_ansi_value(raw: Option<&str>, flag_name: &str) -> StripAnsiMode {
+    match raw {
+        Some("never") | None => StripAnsiMode::Never,
+        Some("always") => StripAnsiMode::Always,
+        Some("auto") => StripAnsiMode::Auto,
+        _ => unreachable!("other values for {flag_name} are not allowed"),
+    }
+}
+
 enum HelpType {
     Short,
     Long,
@@ -50,6 +59,10 @@ pub struct App {
     /// (not from config file or environment variables).
     /// This is used to honor the flag when piping output, similar to `cat -n`.
     number_from_cli: bool,
+    /// True if -b / --number-nonblank was passed on the command line
+    /// (not from config file or environment variables).
+    /// This is used to honor the flag when piping output, similar to `cat -b`.
+    number_nonblank_from_cli: bool,
 }
 
 impl App {
@@ -59,36 +72,12 @@ impl App {
 
         let interactive_output = std::io::stdout().is_terminal();
 
-        // Check if the -n / --number option was passed on the command line
-        // (before merging with config file and environment variables).
-        // This is needed to honor the -n flag when piping output, similar to `cat -n`.
-        // We need to handle both standalone (-n, --number) and combined short flags (-pn, -An, etc.)
-        // Note: We only check if -n appears and is not overridden by -p in the same combined flag.
-        // For combined flags like -np, -p comes after -n and overrides it, so we don't count it.
-        // For combined flags like -pn, -n comes after -p and takes effect.
-        let number_from_cli = wild::args_os().any(|arg| {
-            let arg_str = arg.to_string_lossy();
-            if arg_str == "-n" || arg_str == "--number" {
-                return true;
-            }
-            // Handle combined short flags
-            // Only count -n if it's the LAST flag in the combined form (so -p doesn't override it)
-            // or if -p is not present in the combined form
-            if arg_str.starts_with('-') && !arg_str.starts_with("--") && arg_str.len() > 2 {
-                let chars: Vec<char> = arg_str.chars().skip(1).collect();
-                let n_pos = chars.iter().position(|&c| c == 'n');
-                let p_pos = chars.iter().position(|&c| c == 'p');
-                // -n is in the combined flag and either:
-                // - -p is not present, OR
-                // - -n comes after -p (so -n takes effect)
-                if let Some(n) = n_pos {
-                    if p_pos.is_none() || n > p_pos.unwrap() {
-                        return true;
-                    }
-                }
-            }
-            false
-        });
+        // Parse the original command line separately from config and environment arguments.
+        // Using clap here keeps CLI-only detection consistent with the final parser, including
+        // option terminators, combined short flags, and options that take values.
+        let cli_matches = Self::cli_matches(interactive_output);
+        let number_from_cli = cli_matches.get_flag("number");
+        let number_nonblank_from_cli = cli_matches.get_flag("number-nonblank");
 
         let matches = Self::matches(interactive_output)?;
 
@@ -130,6 +119,7 @@ impl App {
             matches,
             interactive_output,
             number_from_cli,
+            number_nonblank_from_cli,
         })
     }
 
@@ -199,6 +189,10 @@ impl App {
         cli_args.for_each(|a| args.push(a));
 
         args
+    }
+
+    fn cli_matches(interactive_output: bool) -> ArgMatches {
+        clap_app::build_app(interactive_output).get_matches_from(wild::args_os())
     }
 
     fn matches(interactive_output: bool) -> Result<ArgMatches> {
@@ -445,7 +439,8 @@ impl App {
                     .map(|s| s.as_str())
                     == Some("always")
                 || self.matches.get_flag("force-colorization")
-                || self.number_from_cli),
+                || self.number_from_cli
+                || self.number_nonblank_from_cli),
             tab_width: self
                 .matches
                 .get_one::<String>("tabs")
@@ -458,18 +453,36 @@ impl App {
                         4
                     },
                 ),
-            strip_ansi: match self
-                .matches
-                .get_one::<String>("strip-ansi")
-                .map(|s| s.as_str())
-            {
-                Some("never") => StripAnsiMode::Never,
-                Some("always") => StripAnsiMode::Always,
-                Some("auto") => StripAnsiMode::Auto,
-                _ => unreachable!("other values for --strip-ansi are not allowed"),
+            strip_ansi: {
+                let sanitize = parse_strip_ansi_value(
+                    self.matches
+                        .get_one::<String>("sanitize")
+                        .map(|s| s.as_str()),
+                    "--sanitize",
+                );
+                let strip_ansi = parse_strip_ansi_value(
+                    self.matches
+                        .get_one::<String>("strip-ansi")
+                        .map(|s| s.as_str()),
+                    "--strip-ansi",
+                );
+                // --sanitize implies --strip-ansi to the same value.
+                if sanitize != StripAnsiMode::Never {
+                    sanitize
+                } else {
+                    strip_ansi
+                }
             },
+            sanitize: parse_strip_ansi_value(
+                self.matches
+                    .get_one::<String>("sanitize")
+                    .map(|s| s.as_str()),
+                "--sanitize",
+            ),
             quiet_empty: self.matches.get_flag("quiet-empty"),
             unbuffered: self.matches.get_flag("unbuffered"),
+            number_nonblank: self.matches.get_flag("number-nonblank")
+                || self.number_nonblank_from_cli,
             theme: theme(self.theme_options()).to_string(),
             visible_lines: match self.matches.try_contains_id("diff").unwrap_or_default()
                 && self.matches.get_flag("diff")
@@ -588,6 +601,13 @@ impl App {
             ])));
         }
 
+        // Only line numbers for non-blank lines if `--number-nonblank`.
+        if self.matches.get_flag("number-nonblank") || self.number_nonblank_from_cli {
+            return Some(StyleComponents(HashSet::from([
+                StyleComponent::LineNumbers,
+            ])));
+        }
+
         // Plain if `--plain` is specified at least once.
         if self.matches.get_count("plain") > 0 {
             let mut components = HashSet::from([StyleComponent::Plain]);
@@ -645,7 +665,7 @@ impl App {
         Ok(styled_components)
     }
 
-    fn theme_options(&self) -> ThemeOptions {
+    pub(crate) fn theme_options(&self) -> ThemeOptions {
         Self::theme_options_from_matches(&self.matches)
     }
 

@@ -19,20 +19,6 @@
   [<a href="doc/README-ru.md">Русский</a>]
 </p>
 
-### Sponsors
-
-A special *thank you* goes to our biggest <a href="doc/sponsors.md">sponsors</a>:<br>
-
-<p>
-<a href="https://www.warp.dev/bat">
-  <img src="doc/sponsors/warp-logo.png" width="200" alt="Warp">
-  <br>
-  <strong>Warp, the intelligent terminal</strong>
-  <br>
-  <sub>Available on MacOS, Linux, Windows</sub>
-</a>
-</p>
-
 ### Syntax highlighting
 
 `bat` supports syntax highlighting for a large number of programming and markup
@@ -208,12 +194,6 @@ Note that the [Manpage syntax](assets/syntaxes/02_Extra/Manpage.sublime-syntax) 
 
 The [`prettybat`](https://github.com/eth-p/bat-extras/blob/master/doc/prettybat.md) script is a wrapper that will format code and print it with `bat`.
 
-#### `Warp`
-
-<a href="https://app.warp.dev/drive/folder/-Bat-Warp-Pack-lxhe7HrEwgwpG17mvrFSz1">
-  <img src="doc/sponsors/warp-pack-header.png" alt="Warp">
-</a>
-
 #### Highlighting `--help` messages
 
 You can use `bat` to colorize help text: `$ cp --help | bat -plhelp`
@@ -327,7 +307,7 @@ pacman -S bat
 
 ### On Fedora
 
-You can install [the `bat` package](https://koji.fedoraproject.org/koji/packageinfo?packageID=27506) from the official [Fedora Modular](https://docs.fedoraproject.org/en-US/modularity/using-modules/) repository.
+You can install [the `bat` package](https://packages.fedoraproject.org/pkgs/rust-bat/bat/) from the official sources:
 
 ```bash
 dnf install bat
@@ -534,6 +514,30 @@ You can use `--style=numbers,changes`, for example, to show only Git changes
 and line numbers but no grid and no file header. Set the `BAT_STYLE` environment
 variable to make these changes permanent or use `bat`'s
 [configuration file](#configuration-file).
+
+By default, `bat` enables `changes`, `grid`, `header-filename`, `numbers`, and `snip`.
+
+The available pre-defined styles are:
+
+| Style | Description |
+|-------|-------------|
+| `default` | Enables the recommended style components listed above. |
+| `full` | Enables all available components. |
+| `auto` | Same as `default`, unless the output is piped. |
+| `plain` | Disables all available components. |
+
+The available individual components are:
+
+| Component | Description |
+|-----------|-------------|
+| `changes` | Show Git modification markers. |
+| `header` | Alias for `header-filename`. |
+| `header-filename` | Show filenames before the content. |
+| `header-filesize` | Show file sizes before the content. |
+| `grid` | Vertical/horizontal lines to separate the side bar and header from the content. |
+| `rule` | Horizontal lines to delimit files. |
+| `numbers` | Show line numbers in the side bar. |
+| `snip` | Draw separation lines between distinct line ranges. |
 
 >[!tip]
 > If you specify a default style in `bat`'s config file, you can change which components
@@ -847,6 +851,10 @@ If your version of `bat` supports the `--strip-ansi=auto` option, it can be used
 before syntax highlighting. Alternatively, you may disable both syntax highlighting and wrapping by
 passing the `--color=never --wrap=never` options to `bat`.
 
+For untrusted input, the `--sanitize=auto|always|never` option additionally replaces terminal-active
+control bytes and Unicode bidi / zero-width formatting characters with the Unicode replacement
+character. It implies `--strip-ansi` at the same value.
+
 > [!NOTE]
 > The `auto` option of `--strip-ansi` avoids removing escape sequences when the syntax is plain text.
 
@@ -902,7 +910,7 @@ cargo install --path . --locked --force
 ```
 
 If you want to build an application that uses `bat`'s pretty-printing
-features as a library, check out the [the API documentation](https://docs.rs/bat/).
+features as a library, check out the [API documentation](https://docs.rs/bat/).
 Note that you have to use either `regex-onig` or `regex-fancy` as a feature
 when you depend on `bat` as a library.
 
